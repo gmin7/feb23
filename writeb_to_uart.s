@@ -1,3 +1,5 @@
+.data
+
 .equ JTAG_UART_BASE, 0x10001020
 .equ JTAG_UART_RR, 0
 .equ JTAG_UART_TR, 0
@@ -6,10 +8,12 @@
 .text
 
 writeb_to_uart:
-      ldwio r9, JTAG_UART_CSR(r8)   # read CSR in r9
-      srli  r9, r9, 16              # keep only the upper 16 bits
-      beq   r9, r0, waitt           # as long as the upper 16 bits were zero keep trying
+  movia r8, JTAG_UART_BASE
 
-      stwio r2, JTAG_UART_TR(r8)    # place it in the FIFO
-      br    waitr                  # life is interesting, keep doing what you do
-      ret                           # never reaches here, this is for show
+wait_tr:
+  ldwio r2, JTAG_UART_CSR(r8)   # read CSR in r2
+  srli  r2, r2, 16              # keep only the upper 16 bits
+  beq   r2, r0, wait_tr            # as long as the upper 16 bits were zero keep trying
+
+  stwio r4, JTAG_UART_TR(r8)    # place it in the FIFO
+  ret
