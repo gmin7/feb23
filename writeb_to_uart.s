@@ -5,7 +5,7 @@
 
 .text
 
-writeb:
+writeb_to_uart:
       ldwio r9, JTAG_UART_CSR(r8)   # read CSR in r9
       srli  r9, r9, 16              # keep only the upper 16 bits
       beq   r9, r0, waitt           # as long as the upper 16 bits were zero keep trying

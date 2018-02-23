@@ -5,7 +5,7 @@
 
 .text
 
-readb:
+readb_from_uart:
       movia r8, JTAG_UART_BASE
 
 
