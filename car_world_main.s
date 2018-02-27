@@ -12,17 +12,13 @@
 
 
 
-----------------------------------
+#----------------------------------
 
-
-
-.data
-
-  .equ RIGHT 0x1C #28 degrees right
-  .equ H_RIGHT 0x7F #+127
-  .equ LEFT 0x9C #28 degrees left
-  .equ H_LEFT 0xFF #-127
-  .equ STRAIGHT 0x00
+  .equ RIGHT, 0x1C #28 degrees right
+  .equ H_RIGHT, 0x7F #+127
+  .equ LEFT, 0x9C #28 degrees left
+  .equ H_LEFT, 0xFF #-127
+  .equ STRAIGHT, 0x00
 
   .equ JTAG_UART_BASE, 0x10001020
   .equ JTAG_UART_RR, 0
@@ -30,7 +26,7 @@
   .equ JTAG_UART_CSR, 4
 
 
--------
+#-------
 
 
 case_table:
@@ -61,103 +57,117 @@ case_table:
         #Hope this doesn't happen
 
 
-----------------------------------
+#----------------------------------
 
 
 .text
-.global car_world_main
+.global _start
 
-car_world_main:
-      #initializing r8
-      movia r8, JTAG_UART_BASE
+_start:
+    #initializing r8
+    movia r8, JTAG_UART_BASE
 
-      call read_sensors_and_speed
-      #r3 contains sensor data
-      #r2 contains speed
+    read_sensors_and_speed:
+       # Request sensors and speed: Send a 0x02
+       addi r4, r0, 0x02
+       call writeb_to_uart
 
-  decideSetSteeringValue:
-      #if sensors are 0x1f       0001 1111
-        addi r15, 0x1f
-        beq r3, r15, st_straight
+      # Read the response
+      poll_sensor_speed_read:
+       #check that data read is 0
+       call readb_from_uart                    #packet type will be in r2
+       bne r2, r0,  poll_sensor_speed_read
 
-      #else if sensors are 0x1e  0001 1110
-        addi r15, 0x1e
-        beq r3, r15, st_right
+      read_states:
+       #look at sensor states
+       call readb_from_uart                    #sensor states will be in r2
+       mov r3, r2                              #keep sensor state in r3 to use r2 to read speed
 
-      #else if sensors are 0x1c  0001 1100
-        addi r15, 0x1c
-        beq r3, r15, st_hstraight
+    /*--------DECIDE ON STEERING-------*/
 
-      #else if sensors are 0x0f  0000 1111
-        addi r15, 0x0f
-        beq r3, r15, st_left
+    decideSetSteeringValue:
+          #if sensors are 0x1f       0001 1111
+            addi r15, r0, 0x1f
+            beq r3, r15, st_straight
 
-      #else if sensors are 0x07  0000 0111
-        addi r15, 0x07
-        beq r3, r15, st_hleft
+          #else if sensors are 0x1e  0001 1110
+            addi r15, r0, 0x1e
+            beq r3, r15, st_right
 
-      #else
-        Hope this doesn't happen
+          #else if sensors are 0x1c  0001 1100
+            addi r15, r0, 0x1c
+            beq r3, r15, st_straight
 
-      # Also do something about the speed.
+          #else if sensors are 0x0f  0000 1111
+            addi r15, r0, 0x0f
+            beq r3, r15, st_left
 
+          #else if sensors are 0x07  0000 0111
+            addi r15, r0, 0x07
+            beq r3, r15, st_hleft
 
-----------------------------------
+          #else
+            #Hope this doesn't happen
 
-
-read_sensors_and_speed:
-   # Request sensors and speed: Send a 0x02
-   addi r4, r0, 0x02
-   call writeb_to_uart
-
-  # Read the response
-  poll_sensor_speed_read:
-     #check that data read is 0
-     call readb_from_uart                    #packet type will be in r2
-     bne r2, r0,  poll_sensor_speed_read
-
-  read_states:
-     #look at sensor states
-     call readb_from_uart                    #sensor states will be in r2
-     mov r3, r2                              #keep sensor state in r3 to use r2 to read speed
-
-     #look at current speed
-     call readb_from_uart                    #current speed will be in r2
-
-     ret
+          # Also do something about the speed.
 
 
-----------------------------------
+    /*--------MAINTAIN SPEED-------*/
+
+       #look at current speed
+       call readb_from_uart                    #current speed will be in r2
+
+       #maintain speed
+       addi r4, r0, 0x04 #request speed change
+       call writeb_to_uart
+
+       mov r4, r0 #maintain speed
+       call writeb_to_uart
+
+       br _start:
+
+
+#----------------------------------
 
 
 set_steering:
-    addi r4, r0, 0x05 #command type = set steering
-    call writeb_to_uart
 
-    mov r4, r15 #pass the new speed as an argument
-    call writeb_to_uart
+  mov r12, ra
 
-    ret
+  addi r4, r0, 0x05 #command type = set steering
+  call writeb_to_uart
+
+  mov r4, r15 #pass the new speed as an argument
+  call writeb_to_uart
+
+  mov ra, r12
+
+  ret
 
 
-----------------------------------
+#----------------------------------
 
 
 writeb_to_uart:
 
+  mov r13, ra
+
   wait_tr:
       ldwio r5, JTAG_UART_CSR(r8)   # read CSR in r2
       srli  r5, r5, 16              # keep only the upper 16 bits
-      beq   r5, r0, wait_tr            # as long as the upper 16 bits were zero keep trying
+      beq   r5, r0, wait_tr         # as long as the upper 16 bits were zero keep trying
 
       stwio r4, JTAG_UART_TR(r8)    # place argument in the FIFO
 
+      mov ra, r13
       ret
 
-----------------------------------
+#----------------------------------
 
 
 readb_from_uart:
+
+  mov r13, ra
 
   wait_rr:
         ldwio r2, JTAG_UART_RR(r8)    # read RR in r2
@@ -165,6 +175,7 @@ readb_from_uart:
         beq   r10, r0, wait_rr        # if bit 15 was zero, there was no character, keep waiting/trying
 
   read:
-        andi  r2, r2, 0xff            # a character was received, keep only that in r2 (mask out all other bits)
+        andi  r2, r2, 0x00ff            # a character was received, keep only that in r2 (mask out all other bits)
 
+        mov ra, r13
         ret
