@@ -29,7 +29,9 @@
   .equ JTAG_UART_TR, 0
   .equ JTAG_UART_CSR, 4
 
+
 -------
+
 
 case_table:
   .align 2
@@ -66,6 +68,9 @@ case_table:
 .global car_world_main
 
 car_world_main:
+      #initializing r8
+      movia r8, JTAG_UART_BASE
+
       call read_sensors_and_speed
       #r3 contains sensor data
       #r2 contains speed
@@ -101,24 +106,23 @@ car_world_main:
 
 
 read_sensors_and_speed:
-  # Request sensors and speed: Send a 0x02.
+   # Request sensors and speed: Send a 0x02
    addi r4, r0, 0x02
    call writeb_to_uart
 
-   # Read the response
-
-  poll:
+  # Read the response
+  poll_sensor_speed_read:
      #check that data read is 0
-     call readb_from_uart #packet type will be in r2
-     bne r2, r0, poll
+     call readb_from_uart                    #packet type will be in r2
+     bne r2, r0,  poll_sensor_speed_read
 
   read_states:
      #look at sensor states
-     call readb_from_uart     #sensor states will be in r2
-     mov r3, r2               #keep sensor state in r3 to use r2 to read speed
+     call readb_from_uart                    #sensor states will be in r2
+     mov r3, r2                              #keep sensor state in r3 to use r2 to read speed
 
      #look at current speed
-     call readb_from_uart     #current speed will be in r2
+     call readb_from_uart                    #current speed will be in r2
 
      ret
 
@@ -140,7 +144,6 @@ set_steering:
 
 
 writeb_to_uart:
-    movia r8, JTAG_UART_BASE
 
   wait_tr:
       ldwio r5, JTAG_UART_CSR(r8)   # read CSR in r2
@@ -150,3 +153,18 @@ writeb_to_uart:
       stwio r4, JTAG_UART_TR(r8)    # place argument in the FIFO
 
       ret
+
+----------------------------------
+
+
+readb_from_uart:
+
+  wait_rr:
+        ldwio r2, JTAG_UART_RR(r8)    # read RR in r2
+        andi  r10, r2, 0x8000         # extract bit 15 in register r10 / keep a copy of r9 since it contains the character if any
+        beq   r10, r0, wait_rr        # if bit 15 was zero, there was no character, keep waiting/trying
+
+  read:
+        andi  r2, r2, 0xff            # a character was received, keep only that in r2 (mask out all other bits)
+
+        ret
