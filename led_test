@@ -1,0 +1,83 @@
+/*----------BLINK LED WITH PERIOD 1----------*/
+
+
+/*---CONSTANT DECLARATIONS--*/
+  #TIMER CONSTANT DECLARATIONS
+    .equ  TIMER0_BASE,      0xFF202000
+    .equ  TIMER0_STATUS,    0
+    .equ  TIMER0_CONTROL,   4
+    .equ  TIMER0_PERIODL,   8
+    .equ  TIMER0_PERIODH,   12
+    .equ  TIMER0_SNAPL,     16
+    .equ  TIMER0_SNAPH,     20
+
+    .equ  TICKSPERSEC,      100000000
+
+/*---TEXT---*/
+.text
+    /* NOTE: writing a "1" turns the LED "ON" and a "0" turns the LED "OFF" */
+    .equ ADDR_7SEG,			0xFF200020
+    .equ ADDR_REDLEDS,		0xFF200000	/* 10 bits corresponding to 10 LEDRd starting at this address */
+
+
+.global _start
+    _start:
+
+/*---SET TIMER TO RUN FOR A SECOND ON CONTINUOUS MODE---*/
+continuous_second_setup:
+      movia r8, TIMER0_BASE
+
+
+      # Set the period registers to 10^7
+      addi  r9, r0, %lo (TICKSPERSEC)
+      stwio r9, TIMER0_PERIODL(r8)
+      addi  r9, r0, %hi(TICKSPERSEC)
+      stwio r9, TIMER0_PERIODH(r8)
+
+# tell the counter to start over automatically and start counting
+      addi  r9, r0, 0x7                   # 0x7 = 0111 so we write 1 to START and to CONT and enable INTERRUPT
+      stwio r9, TIMER0_CONTROL(r8)
+
+
+#setup IRQ
+      addi r14, r0, 1
+      wrctl ctl3, r14 #enable IR0 for timer
+      wrctl ctl0, r14 #enable interrupts
+
+
+FOREVER_LOOP: br FOREVER_LOOP
+
+
+/*---INTERRUPT HANDLER---*/
+.section .exceptions, "ax"
+ISR:
+prologue:
+  subi sp, sp, 8
+  stw r12, 0(sp)
+  stw r13, 4(sp)
+
+acknowledge:
+  movia r8, TIMER0_BASE
+  stwio r0, TIMER0_STATUS(r8)
+
+  blink_setup:
+    movia r13, ADDR_REDLEDS
+    ldwio r12, 0(r13)
+    andi r12, r12, 0xFFF1 #isolate bit 0 to determine whether on
+
+  blink_on_or_off:
+    bne r12, r0, turn_LED_off
+    addi r12, r12, 1 #if bit 0 was low then turn LED on
+    stwio r12, 0(r13)
+    br epilogue
+
+  turn_LED_off:
+    and r12, r12, r0
+    stwio r12, 0(r13)
+
+epilogue:
+    ldw r13, 4(sp)
+    ldw r12, 0(sp)
+    addi sp, sp, 8
+    subi ea, ea, 4
+    eret

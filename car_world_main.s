@@ -1,5 +1,4 @@
-/*LEGEND*/
-
+/*--LEGEND--*/
 
 
 #r8: jtag base
@@ -12,60 +11,52 @@
 
 
 
-#----------------------------------
+/*----------------------TEXT---------------------*/
+.text
 
-  .equ RIGHT, 0x1C #28 degrees right
-  .equ H_RIGHT, 0x7F #+127
-  .equ LEFT, 0x9C #28 degrees left
-  .equ H_LEFT, 0xFF #-127
-  .equ STRAIGHT, 0x00
+/*--TIMER CONSTANT DECLARATIONS--*/
+  .equ  TIMER0_BASE,      0xFF202000
+  .equ  TIMER0_STATUS,    0
+  .equ  TIMER0_CONTROL,   4
+  .equ  TIMER0_PERIODL,   8
+  .equ  TIMER0_PERIODH,   12
+  .equ  TIMER0_SNAPL,     16
+  .equ  TIMER0_SNAPH,     20
 
+  .equ  TICKSPERSEC,      100000000
+
+/*--CARWORLD CONSTANT DECLARATIONS--*/
+  .equ RIGHT, 110
+  .equ H_RIGHT, 127
+  .equ LEFT, -110
+  .equ H_LEFT, -127
+  .equ STRAIGHT, 0
+
+/*--JTAG1 UART CONSTANT DECLARATIONS--*/
   .equ JTAG_UART_BASE, 0x10001020
   .equ JTAG_UART_RR, 0
   .equ JTAG_UART_TR, 0
   .equ JTAG_UART_CSR, 4
 
 
-#-------
+/*--JTAG2 CONSTANT DECLARATIONS--*/
+  .equ JTAG2_UART_BASE, 0xFF201000
 
-
-case_table:
-  .align 2
-  .word st_straight, st_right, st_hright, st_left, st_hleft, else
-
-      st_straight:
-        addi r15, r0, STRAIGHT
-        call set_steering
-
-      st_right:
-        addi r15, r0, RIGHT
-        call set_steering
-
-      st_hright:
-        addi r15, r0, H_RIGHT
-        call set_steering
-
-      st_left:
-        addi r15, r0, LEFT
-        call set_steering
-
-      st_hleft:
-        addi r15, r0, H_LEFT
-        call set_steering
-
-      else:
-        #Hope this doesn't happen
-
-
-#----------------------------------
-
-
-.text
+/*--------------------GLOBAL-----------------------*/
 .global _start
 
 _start:
     #initializing r8
     movia r8, JTAG_UART_BASE
+
+
+	#intialize speed
+   addi r4, r0, 0x04 #request speed change
+   call writeb_to_uart
+
+   addi r4, r0, 70
+   call writeb_to_uart
+
 
     read_sensors_and_speed:
        # Request sensors and speed: Send a 0x02
@@ -92,15 +83,15 @@ _start:
 
           #else if sensors are 0x1e  0001 1110
             addi r15, r0, 0x1e
-            beq r3, r15, st_right
+            beq r3, r15, st_hright
 
           #else if sensors are 0x1c  0001 1100
             addi r15, r0, 0x1c
-            beq r3, r15, st_straight
+            beq r3, r15, st_right
 
           #else if sensors are 0x0f  0000 1111
             addi r15, r0, 0x0f
-            beq r3, r15, st_left
+            beq r3, r15, st_hleft
 
           #else if sensors are 0x07  0000 0111
             addi r15, r0, 0x07
@@ -113,21 +104,53 @@ _start:
 
 
     /*--------MAINTAIN SPEED-------*/
-
+	speed:
        #look at current speed
        call readb_from_uart                    #current speed will be in r2
 
+	   movi r16, 15
+	   blt r2, r16, accelerateH
+
+	   movi r16, 60
+	   blt r2, r16, accelerate
+
+	   movi r16, 55
+	   bgt r2, r16, decelerate
+
+	   movi r16, 55
+	   beq r2, r16, maintain
+
+	   accelerate:
+		addi r17, r0, 118
+		br writespeed
+
+
+		accelerateH:
+		addi r17, r0, 127
+		br writespeed
+
+
+	   maintain:
+		movi r17, 0
+		br writespeed
+
+	   decelerate:
+	    addi r17, r0, -100
+
+	writespeed:
        #maintain speed
        addi r4, r0, 0x04 #request speed change
        call writeb_to_uart
 
-       mov r4, r0 #maintain speed
+
+	   mov r4, r17
        call writeb_to_uart
 
-       br _start:
+	   restart:
+       br read_sensors_and_speed
 
 
-#----------------------------------
+/*-------------------------------------------*/
 
 
 set_steering:
@@ -145,7 +168,7 @@ set_steering:
   ret
 
 
-#----------------------------------
+/*-------------------------------------------*/
 
 
 writeb_to_uart:
@@ -162,7 +185,7 @@ writeb_to_uart:
       mov ra, r13
       ret
 
-#----------------------------------
+/*-------------------------------------------*/
 
 
 readb_from_uart:
@@ -179,3 +202,74 @@ readb_from_uart:
 
         mov ra, r13
         ret
+
+
+/*-------------------------------------------*/
+
+
+case_table:
+  .align 2
+  .word st_straight, st_right, st_hright, st_left, st_hleft
+
+      st_straight:
+        addi r15, r0, STRAIGHT
+        call set_steering
+		br speed
+
+
+      st_right:
+        addi r15, r0, RIGHT
+        call set_steering
+		br speed
+
+      st_hright:
+        addi r15, r0, H_RIGHT
+        call set_steering
+		br speed
+
+      st_left:
+        addi r15, r0, LEFT
+        call set_steering
+		br speed
+
+      st_hleft:
+        addi r15, r0, H_LEFT
+        call set_steering
+		br speed
+
+
+/*-------------------LAB6 STARTS HERE----------------------*/
+
+/*---ENABLING TIMER TO INTERRUPT WHEN IT REACHES 0--*/
+
+movui r2, 0x30 # ASCII code for 0
+movia r7, 0xFF201000 # r7 now contains the base address
+stwio r2, 0(r7) # Write the character to the JTAG
+
+
+/*----------- TIMER ON CONTINUOUS MODE --------------*/
+
+waitasec:
+
+      movia r8, TIMER0_BASE
+      addi  r9, r0, 0x9                   # stop the counter AND enable interrupts when ITO bit = 1 (INTERRUPT ENABLE #1 TAKEN CARE OF HERE)
+      stwio r9, TIMER0_CONTROL(r8)
+
+
+      # Set the period registers to 10^7
+      addi  r9, r0, %lo (TICKSPERSEC)
+      stwio r9, TIMER0_PERIODL(r8)
+      addi  r9, r0, %hi(TICKSPERSEC)
+      stwio r9, TIMER0_PERIODH(r8)
+
+# tell the counter to start over automatically and start counting
+      addi  r9, r0, 0x6                   # 0x6 = 0110 so we write 1 to START and to CONT
+      stwio r9, TIMER0_CONTROL(r8)
+
+
+
+/*--------- ISR ----------*/
+
+.section .exceptions, "ax"
+myISR:
+  [interrupt service routine starts here at 0x20]
